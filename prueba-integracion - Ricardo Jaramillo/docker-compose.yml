@@ -1,0 +1,117 @@
+services:
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  contable:
+    build:
+      context: ./mocks/contable
+    container_name: contable
+    ports:
+      - "8001:8001"
+
+  gestion:
+    build:
+      context: ./mocks/gestion
+    container_name: gestion
+    ports:
+      - "8002:8002"
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8000
+
+  lealtad:
+    build:
+      context: ./mocks/lealtad
+    container_name: lealtad
+    ports:
+      - "8003:8003"
+
+  orchestrator:
+    build:
+      context: ./src
+    container_name: orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      CONTABLE_URL: http://contable:8001
+      GESTION_URL: http://gestion:8002
+      LEALTAD_URL: http://lealtad:8003
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CLOSING_START: "22:00"
+      CLOSING_END: "23:59"
+      RETRY_MAX: "3"
+      RETRY_BASE_SECONDS: "1"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      contable:
+        condition: service_started
+      gestion:
+        condition: service_started
+      lealtad:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./src
+    container_name: worker
+    command: python worker_main.py
+    environment:
+      PYTHONUNBUFFERED: "1"
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CONTABLE_URL: http://contable:8001
+      GESTION_URL: http://gestion:8002
+      LEALTAD_URL: http://lealtad:8003
+      CLOSING_START: "22:00"
+      CLOSING_END: "23:59"
+      RETRY_MAX: "3"
+      RETRY_BASE_SECONDS: "1"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      contable:
+        condition: service_started
+      gestion:
+        condition: service_started
+      lealtad:
+        condition: service_started
+
+  tests:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    container_name: tests
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8000
+      CONTABLE_URL: http://contable:8001
+      GESTION_URL: http://gestion:8002
+      LEALTAD_URL: http://lealtad:8003
+      CLOSING_START: "22:00"
+      CLOSING_END: "23:59"
+      RETRY_MAX: "3"
+      RETRY_BASE_SECONDS: "1"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      orchestrator:
+        condition: service_started
+      worker:
+        condition: service_started
+      contable:
+        condition: service_started
+      gestion:
+        condition: service_started
+      lealtad:
+        condition: service_started
+    profiles:
+      - test
